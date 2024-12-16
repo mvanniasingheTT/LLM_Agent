@@ -6,7 +6,7 @@ from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import AgentExecutor, create_react_agent
 from langchain_groq import ChatGroq
 from langchain_core.outputs import GenerationChunk
 
@@ -14,6 +14,11 @@ from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Type,
 from langchain_core.runnables import Runnable, RunnableMap, RunnablePassthrough
 from langchain_core.language_models import LanguageModelInput
 
+from langchain.agents.output_parsers.tools import (
+    ToolAgentAction,
+    ToolsAgentOutputParser,
+)
+from langchain.agents.react.output_parser import ReActOutputParser
 
 from langchain_core.callbacks.manager import CallbackManagerForLLMRun
 from langchain_core.language_models import BaseChatModel
@@ -60,6 +65,130 @@ from langchain_core.messages import (
 from langchain_core.messages.ai import UsageMetadata
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from pydantic import BaseModel, Field
+
+import os
+import json
+
+from typing import Any, List
+from langchain_core.tools import Tool
+from pydantic.v1 import BaseModel, Field
+from e2b_code_interpreter import Sandbox
+from langchain_core.messages import BaseMessage, ToolMessage
+from langchain.agents.output_parsers.tools import (
+    ToolAgentAction,
+)
+from typing import List, Sequence, Tuple
+from langchain_core.prompts import ChatPromptTemplate
+from langchain.agents import AgentExecutor
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import BaseMessage
+from langchain_core.runnables import RunnablePassthrough
+from langchain.agents.output_parsers.tools import (
+    ToolAgentAction,
+    ToolsAgentOutputParser,
+)
+from langchain.agents import AgentOutputParser
+
+from langchain.agents.react.output_parser import ReActOutputParser
+from langchain import hub
+from langchain.agents import create_tool_calling_agent
+
+from langchain.memory import ConversationSummaryBufferMemory
+
+from langchain.memory import ConversationBufferMemory
+
+
+
+def format_to_tool_messages(
+    intermediate_steps: Sequence[Tuple[ToolAgentAction, dict]],
+) -> List[BaseMessage]:
+    messages = []
+    for agent_action, observation in intermediate_steps:
+        if agent_action.tool == CodeInterpreterFunctionTool.tool_name:
+            new_messages = CodeInterpreterFunctionTool.format_to_tool_message(
+                agent_action,
+                observation,
+            )
+            messages.extend([new for new in new_messages if new not in messages])
+        else:
+            # Handle other tools
+            print("Not handling tool: ", agent_action.tool)
+
+    return messages
+
+class LangchainCodeInterpreterToolInput(BaseModel):
+    code: str = Field(description="Python code to execute.")
+
+
+class CodeInterpreterFunctionTool:
+    """
+    This class calls arbitrary code against a Python Jupyter notebook.
+    It requires an E2B_API_KEY to create a sandbox.
+    """
+
+    tool_name: str = "code_interpreter"
+
+    def __init__(self):
+        # Instantiate the E2B sandbox - this is a long lived object
+        # that's pinging E2B cloud to keep the sandbox alive.
+        if "E2B_API_KEY" not in os.environ:
+            raise Exception(
+                "Code Interpreter tool called while E2B_API_KEY environment variable is not set. Please get your E2B api key here https://e2b.dev/docs and set the E2B_API_KEY environment variable."
+            )
+        self.code_interpreter = Sandbox(timeout=1800)
+
+    def call(self, parameters: dict, **kwargs: Any):
+        code = parameters.get("code", "")
+        if code.startswith("```"):
+            code = code[3:]
+        if code.endswith("```"):
+            code = code[:-3]
+        print(f"***Code Interpreting...\n{code}\n====")
+        execution = self.code_interpreter.run_code(code)
+        return {
+            "results": execution.results,
+            "stdout": execution.logs.stdout,
+            "stderr": execution.logs.stderr,
+            "error": execution.error,
+        }
+
+    def close(self):
+        self.code_interpreter.kill()
+
+    # langchain does not return a dict as a parameter, only a code string
+    def langchain_call(self, code: str):
+        return self.call({"code": code})
+
+    def to_langchain_tool(self) -> Tool:
+        tool = Tool(
+            name=self.tool_name,
+            description="Execute python code in a Jupyter notebook cell and returns any rich data (eg charts), stdout, stderr, and error.",
+            func=self.langchain_call,
+        )
+        tool.args_schema = LangchainCodeInterpreterToolInput
+        return tool
+
+    @staticmethod
+    def format_to_tool_message(
+        agent_action: ToolAgentAction,
+        observation: dict,
+    ) -> List[BaseMessage]:
+        """
+        Format the output of the CodeInterpreter tool to be returned as a ToolMessage.
+        """
+        new_messages = list(agent_action.message_log)
+
+        # TODO: Add info about the results for the LLM
+        content = json.dumps(
+            {k: v for k, v in observation.items() if k not in ("results")}, indent=2
+        )
+        print(observation, agent_action, content)
+        new_messages.append(
+            ToolMessage(content=content, tool_call_id=agent_action.tool_call_id)
+        )
+
+        return new_messages
+
 
 class CustomLLM(BaseChatModel):
     server_url: str
@@ -137,8 +266,8 @@ class CustomLLM(BaseChatModel):
                   downstream and understand why generation stopped.
             run_manager: A run manager with callbacks for the LLM.
         """
-        last_message = messages[-1]
-        tokens = str(last_message.content)
+        last_message = messages[-1] # take most recent message as input to chat 
+        # tokens = str(last_message.content)
         # kwargs["encoded_jwt"] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoidGVuc3RvcnJlbnQiLCJ0b2tlbl9pZCI6ImRlYnVnLXRlc3QifQ.LZeuFMVFzgxD91sDR79qlfDogPHUCG9lLopctYKYvnI"
         # headers = {"Authorization": f"Bearer {kwargs['encoded_jwt']}"}
         # json_data = {
@@ -151,7 +280,7 @@ class CustomLLM(BaseChatModel):
         #     "stream": True,
         #     "stop": ["<|eot_id|>"],
         #     }
-        # # with requests.post(
+        # with requests.post(
         #     self.server_url, json=json_data, headers=headers, stream=True, timeout=None
         # ) as response:
         #     for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
@@ -159,23 +288,23 @@ class CustomLLM(BaseChatModel):
         #         new_chunk =  new_chunk.strip()
         #         if new_chunk == "[DONE]":
         #                 # Yield [DONE] to signal that streaming is complete
-        #                 # new_chunk = Chunk(new_chunk)
-        #                 # new_chunk = GenerationChunk(text=new_chunk)
         #                 new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk))
         #                 yield new_chunk
         #         else:
         #             new_chunk = json.loads(new_chunk)
         #             new_chunk = new_chunk["choices"][0]
-        #             # print(new_chunk["text"])
-        #             # new_chunk = Chunk(new_chunk["text"])
-        #             # new_chunk = GenerationChunk(text=new_chunk["text"])
         #             new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk["text"]))
         #             yield new_chunk
+        #         if run_manager:
+        #             run_manager.on_llm_new_token(
+        #                 new_chunk.text, chunk=new_chunk
+        #             )
         os.environ["GROQ_API_KEY"] = "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"
         from langchain_groq import ChatGroq
-        model = ChatGroq(model="llama3-8b-8192")
+        model = ChatGroq(model="llama3-70b-8192")
         try:
             for chunk in model._stream(messages=messages, stop=stop, **kwargs):
+                # print(chunk)
                 yield chunk
         except Exception as e:
             print(f"Error during streaming: {e}")
@@ -233,15 +362,6 @@ class CustomLLM(BaseChatModel):
         """Get the type of language model used by this chat model. Used for logging purposes only."""
         return "custom"
 
-'''
-need to look at streaming 
-template might be differnt for llama 
-
-streaming token by token was smthg new an in progres feature so need to look into that 
-RAG streaming 
-
-f10cs02 - work with anirudh 
-'''
 
 def get_api_key():
     try:
@@ -256,7 +376,7 @@ def get_api_key():
         print(f"An error occured: {e}")
 
 
-async def poll_requests(agent_executor, config):
+async def poll_requests(agent_executor, config, tools):
     try:
         while True:
             message = input("\nSend a message\n ")
@@ -265,8 +385,15 @@ async def poll_requests(agent_executor, config):
                 print("Exiting the program.")
                 break
 
+            input_data = {
+                "input": message,
+                "agent_scratchpad": "",
+                "tools": "\n".join([tool.name for tool in tools]),  # Add tool descriptions
+                "tool_names": ", ".join([tool.name for tool in tools])  # Add tool names
+            }
+
             async for event in agent_executor.astream_events(
-            {"messages": [HumanMessage(content=message)]}, version="v2", config=config
+            {"input": input_data}, version="v2", config=config
         ):
                 kind = event["event"]
                 if kind == "on_chain_start":
@@ -306,19 +433,76 @@ async def poll_requests(agent_executor, config):
                     print("--")
                     # pass
 
+            # code_interpreter.close() 
+
 
     except KeyboardInterrupt:
         print("\nExiting due to keyboard interrupt.")
 
 
 def setup_executer(llm, memory, tools):
-    return create_react_agent(llm, tools, checkpointer=memory)
+    template = '''Answer the following questions as best you can. You have access to the following tools:
+
+        {tools}
+
+        Use the following format:
+
+        Question: the input question you must answer
+        Thought: you should always think about what to do
+        Action: the action to take, should be one of [{tool_names}]
+        Action Input: the input to the action
+        Observation: the result of the action
+        ... (this Thought/Action/Action Input/Observation can repeat N times, if you feel you have answered the inital question don't repeat at all)
+        Thought: I now know the final answer
+        Final Answer: the final answer to the original input question
+
+        Begin!
+
+        Question: {input}
+        Thought:{agent_scratchpad}
+
+
+        '''
+    prompt = ChatPromptTemplate.from_template(template)
+    # agent = (
+    #     RunnablePassthrough.assign(
+    #         agent_scratchpad=lambda x: format_to_tool_messages(x["intermediate_steps"])
+    #     )
+    #     | prompt
+    #     | llm.bind_tools(tools)
+    #     | ToolsAgentOutputParser()
+    # )
+    agent = create_react_agent(llm, tools, prompt)
+
+    agent_executor = AgentExecutor(
+        agent=agent,
+        tools=tools,
+        verbose=True,
+        return_intermediate_steps=True,
+        )       
+
+    return agent_executor
 
 if __name__ == "__main__":
     get_api_key()
 
     memory = MemorySaver()
-    llm = ChatGroq(model="llama3-8b-8192")
+    # llm = ChatGroq(model="llama3-8b-8192")
+    llm = CustomLLM(server_url="http://127.0.0.1:7001/v1/completions")
+    # memory = ConversationSummaryBufferMemory(
+    #         llm=llm,
+    #         memory_key="chat_history", # What dict key to use to parse in the agent
+    #         return_messages=True,
+    #         max_token_limit=1024, # The bigger the limit, the more unsummarized messages
+    #         output_key="messages"
+    #     )
+    memory = ConversationBufferMemory(
+        llm=llm,
+        memory_key="chat_history", # What dict key to use to parse in the agent
+        return_messages=True,
+        output_key="output")
+
+    os.environ["TAVILY_API_KEY"] = "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"
     
     search = TavilySearchResults(
         max_results=5,
@@ -326,9 +510,11 @@ if __name__ == "__main__":
         include_raw_content=True,
         include_images=True)
 
-
-    # search = DuckDuckGoSearchResults()
-    tools =[search]
+    os.environ["E2B_API_KEY"] = "e2b_714d3ff98cf135c5d0d6cb39e07fe6e03b5203e7"
+    code_interpreter = CodeInterpreterFunctionTool()
+    code_interpreter_tool = code_interpreter.to_langchain_tool()
+    tools =[code_interpreter_tool, search]
+    # tools =  [search]
     config = {"configurable": {"thread_id": "cde123"}}
     agent_executer = setup_executer(llm, memory, tools)
-    asyncio.run(poll_requests(agent_executer, config))
+    asyncio.run(poll_requests(agent_executer, config, tools))
