@@ -1,0 +1,9 @@
+# Ignore python enviroments
+llm_agent_env/
+venv/
+agent_env_py3-11/
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
