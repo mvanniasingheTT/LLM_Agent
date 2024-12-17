@@ -54,6 +54,8 @@ class CodeInterpreterFunctionTool:
             code = code[3:]
         if code.endswith("```"):
             code = code[:-3]
+        elif code.endswith("```\n"):
+            code = code[:-4]
         print(f"***Code Interpreting...\n{code}\n====")
         execution = self.code_interpreter.run_code(code)
         return {
