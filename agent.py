@@ -8,9 +8,9 @@ import os
 
 
 if __name__ == "__main__":
-    get_api_key()
+    # get_api_key()
 
-    llm = CustomLLM(server_url="http://127.0.0.1:7002/v1/completions")
+    llm = CustomLLM(server_url="http://model_container:7000/v1/completions")
     memory = ConversationBufferMemory(
         llm=llm,
         memory_key="chat_history", # What dict key to use to parse in the agent
