@@ -80,47 +80,49 @@ class CustomLLM(BaseChatModel):
             run_manager: A run manager with callbacks for the LLM.
         """
         last_message = messages[-1] # take most recent message as input to chat 
-        # tokens = str(last_message.content)
-        # kwargs["encoded_jwt"] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoidGVuc3RvcnJlbnQiLCJ0b2tlbl9pZCI6ImRlYnVnLXRlc3QifQ.LZeuFMVFzgxD91sDR79qlfDogPHUCG9lLopctYKYvnI"
-        # headers = {"Authorization": f"Bearer {kwargs['encoded_jwt']}"}
-        # json_data = {
-        #     "model": "meta-llama/Llama-3.1-70B-Instruct",
-        #     "prompt": tokens,
-        #     "temperature": 1,
-        #     "top_k": 20,
-        #     "top_p": 0.9,
-        #     "max_tokens": 128,
-        #     "stream": True,
-        #     "stop": ["<|eot_id|>"],
-        #     }
-        # with requests.post(
-        #     self.server_url, json=json_data, headers=headers, stream=True, timeout=None
-        # ) as response:
-        #     for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
-        #         new_chunk = chunk[len("data: "):]
-        #         new_chunk =  new_chunk.strip()
-        #         if new_chunk == "[DONE]":
-        #                 # Yield [DONE] to signal that streaming is complete
-        #                 new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk))
-        #                 yield new_chunk
-        #         else:
-        #             new_chunk = json.loads(new_chunk)
-        #             new_chunk = new_chunk["choices"][0]
-        #             new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk["text"]))
-        #             yield new_chunk
-        #         if run_manager:
-        #             run_manager.on_llm_new_token(
-        #                 new_chunk.text, chunk=new_chunk
-        #             )
-        os.environ["GROQ_API_KEY"] = "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"
-        from langchain_groq import ChatGroq
-        model = ChatGroq(model="llama3-70b-8192")
-        try:
-            for chunk in model._stream(messages=messages, stop=stop, **kwargs):
-                # print(chunk)
-                yield chunk
-        except Exception as e:
-            print(f"Error during streaming: {e}")
+        tokens = str(last_message.content)
+        kwargs["encoded_jwt"] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoidGVuc3RvcnJlbnQiLCJ0b2tlbl9pZCI6ImRlYnVnLXRlc3QifQ.d4yeupmZstXOPDDGrVxQMTCkXa4bqn4WhOeSW7e8jtg"
+        headers = {"Authorization": f"Bearer {kwargs['encoded_jwt']}"}
+        json_data = {
+            "model": "meta-llama/Llama-3.1-70B-Instruct",
+            "prompt": tokens,
+            "temperature": 1,
+            "top_k": 20,
+            "top_p": 0.9,
+            "max_tokens": 128,
+            "stream": True,
+            "stop": ["<|eot_id|>"],
+            }
+        print("THIS RAN")
+        with requests.post(
+            self.server_url, json=json_data, headers=headers, stream=True, timeout=None
+        ) as response:
+            for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
+                new_chunk = chunk[len("data: "):]
+                new_chunk =  new_chunk.strip()
+                print("CHUNK WAS RECIEVED")
+                if new_chunk == "[DONE]":
+                        # Yield [DONE] to signal that streaming is complete
+                        new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk))
+                        yield new_chunk
+                else:
+                    new_chunk = json.loads(new_chunk)
+                    new_chunk = new_chunk["choices"][0]
+                    new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk["text"]))
+                    yield new_chunk
+                if run_manager:
+                    run_manager.on_llm_new_token(
+                        new_chunk.text, chunk=new_chunk
+                    )
+        # os.environ["GROQ_API_KEY"] = "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"
+        # from langchain_groq import ChatGroq
+        # model = ChatGroq(model="llama3-70b-8192")
+        # try:
+        #     for chunk in model._stream(messages=messages, stop=stop, **kwargs):
+        #         # print(chunk)
+        #         yield chunk
+        # except Exception as e:
+        #     print(f"Error during streaming: {e}")
 
 
     def bind_tools(

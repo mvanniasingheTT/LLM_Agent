@@ -16,10 +16,10 @@ def get_api_key():
         print(f"An error occured: {e}")
 
 
-async def poll_requests(agent_executor, config, tools):
+async def poll_requests(agent_executor, config, tools, message):
     try:
         while True:
-            message = input("\nSend a message\n ")
+            # message = input("\nSend a message\n ")
 
             if message.lower() in ["exit", "quit"]:
                 print("Exiting the program.")
