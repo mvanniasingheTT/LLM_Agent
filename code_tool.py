@@ -52,6 +52,9 @@ class CodeInterpreterFunctionTool:
         code = parameters.get("code", "")
         if code.startswith("```"):
             code = code[3:]
+        if code.endswith("[DONE]"):
+            # TODO: check if this needs to be parsed 
+            pass 
         if code.endswith("```"):
             code = code[:-3]
         elif code.endswith("```\n"):
