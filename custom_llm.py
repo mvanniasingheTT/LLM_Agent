@@ -80,12 +80,30 @@ class CustomLLM(BaseChatModel):
             run_manager: A run manager with callbacks for the LLM.
         """
         last_message = messages[-1] # take most recent message as input to chat 
-        tokens = str(last_message.content)
+        # print("Last message: ", last_message)
+        # print("messages: ", messages)
+        # print("last message: ", last_message)
+        filled_template = str(last_message.content)
+        # print(filled_template)
+        end_of_template_substring = "Begin!"
+        position = filled_template.find(end_of_template_substring)
+        template = ""
+        user_content = ""
+        if position != -1:
+            template = filled_template[:position + len(end_of_template_substring)]
+            user_content = filled_template[position + len(end_of_template_substring):]
+            content_position = user_content.find("Question:")
+            if content_position != -1:
+                user_content = user_content[content_position:]
+        message_payload = [{"role": "system", "content": template}, 
+                           {"role": "user", "content": user_content}]
+
+        # print("Content: ", tokens, "Done content")
         kwargs["encoded_jwt"] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoidGVuc3RvcnJlbnQiLCJ0b2tlbl9pZCI6ImRlYnVnLXRlc3QifQ.d4yeupmZstXOPDDGrVxQMTCkXa4bqn4WhOeSW7e8jtg"
         headers = {"Authorization": f"Bearer {kwargs['encoded_jwt']}"}
         json_data = {
             "model": "meta-llama/Llama-3.1-70B-Instruct",
-            "prompt": tokens,
+            "messages": message_payload,
             "temperature": 1,
             "top_k": 20,
             "top_p": 0.9,
@@ -93,22 +111,24 @@ class CustomLLM(BaseChatModel):
             "stream": True,
             "stop": ["<|eot_id|>"],
             }
-        print("THIS RAN")
+        # complete_output = ""
         with requests.post(
             self.server_url, json=json_data, headers=headers, stream=True, timeout=None
         ) as response:
             for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
                 new_chunk = chunk[len("data: "):]
                 new_chunk =  new_chunk.strip()
-                print("CHUNK WAS RECIEVED")
                 if new_chunk == "[DONE]":
                         # Yield [DONE] to signal that streaming is complete
                         new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk))
                         yield new_chunk
                 else:
                     new_chunk = json.loads(new_chunk)
+                    # print(new_chunk)
                     new_chunk = new_chunk["choices"][0]
-                    new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk["text"]))
+                    # new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk["text"]))
+                    # complete_output += new_chunk["delta"]["content"]
+                    new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk["delta"]["content"]))
                     yield new_chunk
                 if run_manager:
                     run_manager.on_llm_new_token(
