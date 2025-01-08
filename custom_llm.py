@@ -20,7 +20,6 @@ from langchain_core.tools import BaseTool
 from langchain_core.runnables import Runnable
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
-import os
 import requests
 import json 
 
@@ -80,11 +79,9 @@ class CustomLLM(BaseChatModel):
             run_manager: A run manager with callbacks for the LLM.
         """
         last_message = messages[-1] # take most recent message as input to chat 
-        # print("Last message: ", last_message)
-        # print("messages: ", messages)
-        # print("last message: ", last_message)
         filled_template = str(last_message.content)
-        # print(filled_template)
+
+        # code to strucuture template into format llama 3.1 70b chat/completions endpoint exepcts
         end_of_template_substring = "Begin!"
         position = filled_template.find(end_of_template_substring)
         template = ""
@@ -95,10 +92,11 @@ class CustomLLM(BaseChatModel):
             content_position = user_content.find("Question:")
             if content_position != -1:
                 user_content = user_content[content_position:]
+        # message format for llama 3.1 70b chat endpoint 
         message_payload = [{"role": "system", "content": template}, 
                            {"role": "user", "content": user_content}]
 
-        # print("Content: ", tokens, "Done content")
+        # TODO: extract from enviroment somehow
         kwargs["encoded_jwt"] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoidGVuc3RvcnJlbnQiLCJ0b2tlbl9pZCI6ImRlYnVnLXRlc3QifQ.d4yeupmZstXOPDDGrVxQMTCkXa4bqn4WhOeSW7e8jtg"
         headers = {"Authorization": f"Bearer {kwargs['encoded_jwt']}"}
         json_data = {
@@ -111,7 +109,6 @@ class CustomLLM(BaseChatModel):
             "stream": True,
             "stop": ["<|eot_id|>"],
             }
-        # complete_output = ""
         with requests.post(
             self.server_url, json=json_data, headers=headers, stream=True, timeout=None
         ) as response:
@@ -126,23 +123,16 @@ class CustomLLM(BaseChatModel):
                     new_chunk = json.loads(new_chunk)
                     # print(new_chunk)
                     new_chunk = new_chunk["choices"][0]
+                    # below format is used for v1/completions endpoint
                     # new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk["text"]))
                     # complete_output += new_chunk["delta"]["content"]
+                    # below format is used for v1/chat/completions endpoint
                     new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk["delta"]["content"]))
                     yield new_chunk
                 if run_manager:
                     run_manager.on_llm_new_token(
                         new_chunk.text, chunk=new_chunk
                     )
-        # os.environ["GROQ_API_KEY"] = "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"
-        # from langchain_groq import ChatGroq
-        # model = ChatGroq(model="llama3-70b-8192")
-        # try:
-        #     for chunk in model._stream(messages=messages, stop=stop, **kwargs):
-        #         # print(chunk)
-        #         yield chunk
-        # except Exception as e:
-        #     print(f"Error during streaming: {e}")
 
 
     def bind_tools(
