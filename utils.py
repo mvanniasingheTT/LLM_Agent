@@ -44,13 +44,10 @@ async def poll_requests(agent_executor, config, tools, memory, message):
         if kind == "on_chat_model_stream":
             content = event["data"]["chunk"].content
             complete_output += content 
+            if "Chat History:" in complete_output:
+                break
             if content:
                 yield content
-            if "Chat History:" in complete_output:
-                # parts = complete_output.split("Chat History:")
-                # final_ans_recieved += 1
-                # complete_output = parts[0] + parts[1]
-                break
             # if final_ans_recieved and content.strip().endswith("[DONE]"):
             #     break 
         elif kind == "on_tool_start":
