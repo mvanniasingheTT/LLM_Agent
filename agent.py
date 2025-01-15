@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 
 app = FastAPI()
 
+
 # if __name__ == "__main__":
 
 class RequestPayload(BaseModel):
@@ -19,7 +20,8 @@ class RequestPayload(BaseModel):
     thread_id: str
 
 
-llm = CustomLLM(server_url="http://model:7000/v1/chat/completions")
+llm_container_name = os.getenv("LLM_CONTAINER_NAME")
+llm = CustomLLM(server_url=f"http://{llm_container_name}:7000/v1/chat/completions")
 memory = ConversationBufferMemory(memory_key="chat_history")
 os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
 
