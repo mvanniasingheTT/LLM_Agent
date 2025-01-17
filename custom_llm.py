@@ -22,10 +22,12 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 
 import requests
 import json 
+import os
 
 
 class CustomLLM(BaseChatModel):
     server_url: str
+    encoded_jwt: str
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -96,9 +98,7 @@ class CustomLLM(BaseChatModel):
         message_payload = [{"role": "system", "content": template}, 
                            {"role": "user", "content": user_content}]
 
-        # TODO: extract from enviroment somehow
-        kwargs["encoded_jwt"] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoidGVuc3RvcnJlbnQiLCJ0b2tlbl9pZCI6ImRlYnVnLXRlc3QifQ.d4yeupmZstXOPDDGrVxQMTCkXa4bqn4WhOeSW7e8jtg"
-        headers = {"Authorization": f"Bearer {kwargs['encoded_jwt']}"}
+        headers = {"Authorization": f"Bearer {self.encoded_jwt}"}
         json_data = {
             "model": "meta-llama/Llama-3.1-70B-Instruct",
             "messages": message_payload,
@@ -125,7 +125,6 @@ class CustomLLM(BaseChatModel):
                     new_chunk = new_chunk["choices"][0]
                     # below format is used for v1/completions endpoint
                     # new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk["text"]))
-                    # complete_output += new_chunk["delta"]["content"]
                     # below format is used for v1/chat/completions endpoint
                     new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk["delta"]["content"]))
                     yield new_chunk

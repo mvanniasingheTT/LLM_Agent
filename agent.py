@@ -5,6 +5,8 @@ from langchain.memory import ConversationBufferMemory
 from langchain_community.tools.tavily_search import TavilySearchResults
 import asyncio
 import os 
+import jwt
+import json
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
@@ -15,13 +17,18 @@ app = FastAPI()
 
 # if __name__ == "__main__":
 
+json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
+jwt_secret = os.getenv("JWT_SECRET")
+encoded_jwt = jwt.encode(json_payload, jwt_secret, algorithm="HS256")
+
 class RequestPayload(BaseModel):
     message: str
     thread_id: str
 
 
 llm_container_name = os.getenv("LLM_CONTAINER_NAME")
-llm = CustomLLM(server_url=f"http://{llm_container_name}:7000/v1/chat/completions")
+llm = CustomLLM(server_url=f"http://{llm_container_name}:7000/v1/chat/completions", encoded_jwt=encoded_jwt)
+# llm = CustomLLM(server_url=f"http://model:7000/v1/chat/completions")
 memory = ConversationBufferMemory(memory_key="chat_history")
 os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
 
