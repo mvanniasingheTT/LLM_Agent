@@ -13,10 +13,6 @@ from fastapi.responses import StreamingResponse
 
 
 app = FastAPI()
-
-
-# if __name__ == "__main__":
-
 json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
 jwt_secret = os.getenv("JWT_SECRET")
 encoded_jwt = jwt.encode(json_payload, jwt_secret, algorithm="HS256")
@@ -37,21 +33,20 @@ search = TavilySearchResults(
     include_answer=True,
     include_raw_content=True)
 
-os.environ["E2B_API_KEY"] = os.getenv("E2B_API_KEY")
+# TODO: enable code agent
+# os.environ["E2B_API_KEY"] = os.getenv("E2B_API_KEY")
 # code_interpreter = CodeInterpreterFunctionTool()
 # code_interpreter_tool = code_interpreter.to_langchain_tool()
 tools = [search]
 agent_executer = setup_executer(llm, memory, tools)
 config = {"configurable": {"thread_id": "abc-123"}}
-# asyncio.run(poll_requests(agent_executer, config, tools, memory))
+# asyncio.run(poll_requests(agent_executer, config, tools, memory)) # TODO: enable to run without server 
 
 @app.post("/poll_requests")
 async def handle_requests(payload: RequestPayload):
     config = {"configurable": {"thread_id": payload.thread_id}}
     try:
         # use await to prevent handle_requests from blocking, allow other tasks to execute
-        # result = await poll_requests(agent_executer, config, tools, memory, payload.message)
-        # return {"output": result}
         return StreamingResponse(poll_requests(agent_executer, config, tools, memory, payload.message), media_type="text/plain")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
